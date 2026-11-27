@@ -15,6 +15,11 @@ Headline: One line on what you do.
 
 Two or three sentences: current role, focus areas, what you build.
 
+## How you describe your skills
+
+Optional. The order the twin should present your skills in, from foundation to specialisation
+(for example: core skills, then integrations, then specialist areas, then side interests).
+
 ## Your story
 
 How you got here, in a short paragraph.
