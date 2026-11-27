@@ -78,6 +78,7 @@ LIGHT_ONLY_HEAD = """
   };
   if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
 })();
+
 </script>
 """
 
@@ -90,10 +91,11 @@ def html_block(value: str = "", **kwargs) -> gr.HTML:
 # ---------------------------------------------------------------- header, hints, footer
 
 # The Parallax mark: one ring seen from two viewpoints, slightly offset - the parallax effect.
+# On page load the two rings start as one and slide apart: one thing, seen from two viewpoints.
 BRAND_MARK = """
 <svg class="sc-mark" viewBox="0 0 32 32" aria-hidden="true">
-  <circle cx="13" cy="16" r="9.5" fill="none" stroke="currentColor" stroke-width="2.2" opacity=".45"/>
-  <circle cx="19" cy="16" r="9.5" fill="none" stroke="currentColor" stroke-width="2.2"/>
+  <circle class="sc-ring-back" cx="13" cy="16" r="9.5" fill="none" stroke="currentColor" stroke-width="2.2" opacity=".45"/>
+  <circle class="sc-ring-front" cx="19" cy="16" r="9.5" fill="none" stroke="currentColor" stroke-width="2.2"/>
 </svg>"""
 
 
@@ -105,7 +107,7 @@ def hero_html(missing: list[str]) -> str:
     return f"""
 <header class="sc-hero">
   <div class="sc-brand">{BRAND_MARK}<span>Parallax</span></div>
-  <h1>Ask the web.<br>Or ask {OWNER_FIRST_NAME}.</h1>
+  <h1><span class="sc-line">Ask the web.</span><span class="sc-line">Or ask {OWNER_FIRST_NAME}.</span></h1>
   <p class="sc-sub">Parallax looks at your question from several angles and writes you a short, sourced brief.
   It also knows {OWNER_FIRST_NAME}, who built it.</p>
   {warning}
@@ -127,8 +129,29 @@ CONTACT_INTRO = f"""
 
 
 def status_html(text: str, tone: str = "ok") -> str:
-    """A one-line result under the message box. tone: ok | warn"""
-    return f'<p class="sc-status sc-status-{tone}">{html.escape(text)}</p>'
+    """A one-line result under the message box. tone: ok | warn | draft
+    ("draft" also makes the box glow once and scrolls it into view - see DRAFT_ARRIVED_JS)."""
+    tone_class = "sc-status-ok sc-status-draft" if tone == "draft" else f"sc-status-{tone}"
+    return f'<p class="sc-status {tone_class}">{html.escape(text)}</p>'
+
+
+# Runs in the browser after each chat reply. If that reply put a new draft in the Say hello box,
+# wait a moment (so the visitor can finish reading), then scroll the box into view and make it glow once.
+DRAFT_ARRIVED_JS = """
+() => {
+  const note = document.querySelector('#sc-contact .sc-status-draft:not([data-seen])');
+  if (!note) return;
+  note.setAttribute('data-seen', '1');
+  const box = document.getElementById('sc-contact');
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  setTimeout(() => {
+    box.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
+    box.classList.remove('sc-glow');
+    void box.offsetWidth;            // restart the animation if it ran before
+    box.classList.add('sc-glow');
+  }, 900);
+}
+"""
 
 
 def quota_html(left: int, total: int) -> str:
@@ -171,15 +194,27 @@ def _domain(url: str) -> str:
     return re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
 
 
+def _since(moment: float) -> str:
+    """A negative animation-delay for something that began at `moment` (a time.monotonic() value).
+
+    The panel is rebuilt on every update (every second), and a rebuilt element restarts its CSS
+    animations. Starting each animation as far in as time has passed since its moment means it plays
+    exactly once: a step that appeared 0.1s ago is mid fade-in, one from 5s ago is simply finished."""
+    return f"animation-delay: -{max(0.0, time.monotonic() - moment):.2f}s"
+
+
 def _step_rows(steps) -> str:
-    # The panel is rebuilt on every update, which would restart the spinner animation each time.
-    # Starting it at a clock-based point (negative delay) keeps the rotation smooth across rebuilds.
+    # Same trick for the spinner: a clock-based starting point keeps its rotation smooth across rebuilds.
     spin_phase = time.monotonic() % SPIN_SECONDS
     spinner = f'<span class="sc-spin" style="animation-delay: -{spin_phase:.2f}s"></span>'
 
     rows = []
     for step in steps:
-        icon = {"running": spinner, "done": CHECK_ICON, "failed": FAIL_ICON}[step.status]
+        if step.status == "done":
+            # The tick draws itself once, when the step finishes.
+            icon = CHECK_ICON.replace("<path ", f'<path class="sc-draw" style="{_since(step.ended or 0)}" ', 1)
+        else:
+            icon = {"running": spinner, "failed": FAIL_ICON}[step.status]
         details = "".join(f"<li>{_inline(d)}</li>" for d in step.details)
         if step.status == "running" and step.seconds > SLOW_AFTER_SECONDS:
             details += '<li class="sc-slow">Still working. Free AI models can be slow at busy times.</li>'
@@ -189,7 +224,7 @@ def _step_rows(steps) -> str:
             for link in step.links
         )
         rows.append(f"""
-<div class="sc-step sc-{step.status}">
+<div class="sc-step sc-{step.status}" style="{_since(step.started)}">
   <div class="sc-icon">{icon}</div>
   <div class="sc-body">
     <div class="sc-title"><span>{_inline(step.title)}</span><span class="sc-time">{step.seconds:.1f}s</span></div>
@@ -221,7 +256,7 @@ def _trace_html(steps, collapsed: bool) -> str:
         return f"""
 <details class="sc-activity sc-collapsed">
   <summary>
-    <span class="sc-icon sc-ok">{CHECK_ICON}</span>
+    <span class="sc-icon sc-ok">{CHECK_ICON.replace("<path ", '<path class="sc-draw sc-draw-late" ', 1)}</span>
     <span class="sc-summary-text">Read {sources} sources in {seconds:.0f} seconds</span>
     <span class="sc-toggle"></span>
   </summary>
@@ -332,11 +367,12 @@ html, body, gradio-app { background: var(--sc-paper) !important; }
 
 /* ---------- hero ---------- */
 .sc-hero { text-align: center; margin-bottom: 8px; }
+.sc-line { display: block; }
 .sc-brand {
   display: inline-flex; align-items: center; gap: 8px;
   font-size: 15px; font-weight: 600; color: var(--sc-ink);
 }
-.sc-mark { width: 22px; height: 22px; color: var(--sc-pine); }
+.sc-mark { width: 26px; height: 26px; color: var(--sc-pine); overflow: visible; }
 .sc-hero h1 {
   margin: 28px 0 14px;
   font-size: clamp(40px, 7vw, 64px); line-height: 1.02; font-weight: 600;
@@ -547,7 +583,56 @@ html, body, gradio-app { background: var(--sc-paper) !important; }
   .sc-pipeline li span { grid-column: 2; }
 }
 
+/* ---------- motion ----------
+   Every animation ends in the element's normal resting state, so turning motion off loses nothing. */
+:root { --sc-ease: cubic-bezier(.2, .7, .2, 1); }
+
+/* 1. Opening sequence (once per visit, about 1.5s): the rings separate, the headline rises line by
+   line, then the subtitle and the tabs follow. Everything is still afterwards. */
+.sc-ring-back  { animation: sc-ring-back 1s var(--sc-ease) .2s both; }
+.sc-ring-front { animation: sc-ring-front 1s var(--sc-ease) .2s both; }
+@keyframes sc-ring-back  { from { transform: translateX(4px); opacity: 1; } }
+@keyframes sc-ring-front { from { transform: translateX(-4px); } }
+.sc-brand span { animation: sc-fade-in .6s ease .4s both; }
+
+.sc-hero h1 .sc-line { animation: sc-rise .9s var(--sc-ease) .3s both; }
+.sc-hero h1 .sc-line + .sc-line { animation-delay: .48s; }
+.sc-sub { animation: sc-rise .8s var(--sc-ease) .68s both; }
+#sc-tabs { animation: sc-rise .8s var(--sc-ease) .85s both; }
+@keyframes sc-rise { from { opacity: 0; transform: translateY(20px); filter: blur(6px); } }
+
+/* 2. A draft from the chat lands in the Say hello box: the box glows once (class added by DRAFT_ARRIVED_JS). */
+#sc-contact { border-radius: 20px; }
+#sc-contact.sc-glow { animation: sc-glow 1.8s ease-out; }
+@keyframes sc-glow {
+  0%   { box-shadow: 0 0 0 0 rgba(15, 110, 86, 0); background: transparent; }
+  25%  { box-shadow: 0 0 0 6px rgba(15, 110, 86, .16); background: var(--sc-pine-tint); }
+  100% { box-shadow: 0 0 0 14px rgba(15, 110, 86, 0); background: transparent; }
+}
+.sc-status-draft { animation: sc-fade-in .4s ease both; }
+
+/* 3. Live trace: new steps fade in, finished ticks draw themselves, the folded summary eases in.
+   The inline animation-delay set by _since() makes each of these play once despite the rebuilds. */
+.sc-step { animation: sc-step-in .35s var(--sc-ease) both; }
+@keyframes sc-step-in { from { opacity: 0; transform: translateY(4px); } }
+.sc-draw { stroke-dasharray: 16; stroke-dashoffset: 0; animation: sc-draw .4s ease-out both; }
+.sc-draw-late { animation-delay: .2s; }
+@keyframes sc-draw { from { stroke-dashoffset: 16; } }
+.sc-collapsed { animation: sc-fade-in .45s ease both; }
+.sc-collapsed[open] .sc-steps { animation: sc-fade-in .3s ease both; }
+@keyframes sc-fade-in { from { opacity: 0; } }
+
+/* 4. Small touches: chips lift on hover, buttons press in, tab content fades in on switch. */
+.sc-chips button { transition: transform .15s ease, border-color .15s ease, color .15s ease !important; }
+.sc-chips button:hover { transform: translateY(-1px); }
+#sc-run, #sc-chat-send, #sc-send { transition: transform .12s ease !important; }
+#sc-run:active, #sc-chat-send:active, #sc-send:active, .sc-chips button:active { transform: scale(.97); }
+#sc-tabs .tabitem { animation: sc-fade-in .3s ease both; }
+
 @media (prefers-reduced-motion: reduce) {
   .sc-spin { animation-duration: 2.4s; }
-}
+  .sc-hero h1 .sc-line, .sc-sub, #sc-tabs,
+  .sc-ring-back, .sc-ring-front, .sc-brand span, #sc-contact.sc-glow, .sc-status-draft, .sc-step,
+  .sc-draw, .sc-collapsed, .sc-collapsed[open] .sc-steps, #sc-tabs .tabitem { animation: none !important; }
+  .sc-chips button, #sc-run, #sc-chat-send, #sc-send { transition: none !important; transform: none !important; }}
 """

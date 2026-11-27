@@ -21,7 +21,7 @@ from config import (
 from logbook import log_in_background, logging_enabled, send_event
 from research.manager import ResearchManager
 from ui import (
-    CHAT_EXAMPLES, CONTACT_INTRO, CSS, LIGHT_ONLY_HEAD, RESEARCH_EXAMPLES, RESEARCH_HINT, THEME,
+    CHAT_EXAMPLES, CONTACT_INTRO, CSS, DRAFT_ARRIVED_JS, LIGHT_ONLY_HEAD, RESEARCH_EXAMPLES, RESEARCH_HINT, THEME,
     TWIN_NOTE, activity_html, footer_html, hero_html, html_block, quota_html, showcase_html, status_html,
 )
 from limits import limiter, visitor_key
@@ -149,7 +149,7 @@ def _draft_updates(draft: dict | None):
         draft["message"][:MAX_MESSAGE_CHARS],
         name or gr.update(),                                      # never wipe what the visitor typed
         email if EMAIL_PATTERN.match(email) else gr.update(),
-        status_html("Drafted from your chat. Check it, add your email if you'd like a reply, and press Send.", "ok"),
+        status_html("Drafted from your chat. Check it, add your email if you'd like a reply, and press Send.", "draft"),
     )
 
 
@@ -331,6 +331,8 @@ with gr.Blocks(title="Parallax: research agent and AI twin") as app:
             chat_reply, inputs=[pending_chat, chatbot],
             outputs=[chatbot, contact_kind, contact_message, contact_name, contact_email, contact_status],
             concurrency_limit=4, concurrency_id="chat", show_progress="hidden",
+        ).then(
+            None, js=DRAFT_ARRIVED_JS,    # browser-only: if a draft just arrived, scroll to the box and glow
         )
 
     html_block(footer_html())
