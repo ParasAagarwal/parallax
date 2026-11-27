@@ -9,7 +9,7 @@ Parallax does two things today:
 
 It runs entirely on free infrastructure: Google's free `gemini-3.5-flash-lite` model, Tavily's free search tier, and free hosting. That constraint shaped almost every design decision below.
 
-> **Live demo:** _coming soon_ · Built by [Paras Agarwal](https://www.linkedin.com/in/parasagarwal-dev)
+> **Live demo:** [parallax-hjsn.onrender.com](https://parallax-hjsn.onrender.com) (free hosting: the first visit after a quiet spell can take up to a minute to wake up) · Built by [Paras Agarwal](https://www.linkedin.com/in/parasagarwal-dev)
 
 ![Parallax home page](docs/screenshots/home.png)
 
