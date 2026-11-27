@@ -1,0 +1,7 @@
+openai-agents
+openai
+gradio
+pydantic
+pypdf
+httpx
+python-dotenv

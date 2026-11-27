@@ -1,0 +1,14 @@
+# Secrets - API keys go into the hosting dashboard, never into the repo
+.env
+
+# Personal files (resume, profile, LinkedIn printout) never go into the public repo.
+# Locally they live in me/; in production they are uploaded as secret files. Only the template is shared.
+me/*
+!me/profile.example.md
+
+__pycache__/
+*.pyc
+.gradio/
+
+# Local virtual environment (rebuilt from pyproject.toml / requirements.txt)
+.venv/
