@@ -168,10 +168,14 @@ Without the personal files, research still works and the twin simply has less to
 
 ## Deploy on Render (free)
 
-1. Create a **Web Service** from this repo.
+1. Create a **Web Service** from this repo (runtime: Python 3).
 2. **Build command:** `pip install -r requirements.txt`. **Start command:** `python app.py`.
-3. **Environment:** the keys above, plus `GRADIO_SERVER_NAME=0.0.0.0`, `GRADIO_SERVER_PORT=10000` and `PYTHON_VERSION=3.12.12`.
+3. **Environment:** `GOOGLE_API_KEY`, `TAVILY_API_KEY`, and optionally `PARALLAX_LOG_URL` and `PARALLAX_LOG_TOKEN`.
+   The Python version comes from `.python-version`, and the app listens on the `PORT` Render provides.
 4. **Secret Files:** add `profile.md` and `resume.md` (plain text). Render places them in `/etc/secrets/`, which is one of the places Parallax looks.
+
+`requirements.txt` pins exact versions; regenerate it after changing dependencies with
+`uv export --no-hashes --no-dev --no-emit-project -o requirements.txt`.
 
 The free tier sleeps after 15 minutes without visitors, so the first visit after a quiet spell takes up to a minute while it wakes up. The page says so.
 

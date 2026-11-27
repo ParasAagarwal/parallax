@@ -4,6 +4,7 @@ Parallax - Paras's AI workspace: a research agent and an AI twin, built to keep 
 Run locally:   cd parallax  then  uv run app.py
 """
 
+import os
 import re
 import time
 
@@ -300,4 +301,11 @@ with gr.Blocks(title="Parallax: research agent and AI twin") as app:
 
 
 if __name__ == "__main__":
-    app.queue(max_size=20).launch(css=CSS, theme=THEME, head=LIGHT_ONLY_HEAD)
+    # Hosting platforms (Render, Railway, Fly, ...) set PORT and expect the app on 0.0.0.0.
+    # Locally there's no PORT, so Gradio uses its usual 127.0.0.1:7860.
+    port = os.getenv("PORT")
+    app.queue(max_size=20).launch(
+        css=CSS, theme=THEME, head=LIGHT_ONLY_HEAD,
+        server_name="0.0.0.0" if port else None,
+        server_port=int(port) if port else None,
+    )
