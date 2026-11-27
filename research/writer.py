@@ -22,6 +22,8 @@ figures with their year (for example "as of 2024") rather than presenting them a
 
 FIRST, check whether the research question asks for a specific length or format
 (for example "in 50 words", "in 3 bullet points", "briefly", "one paragraph", "a table").
+- Vague length words count too: "in short", "short", "briefly", "brief", "quick", "quickly", "summary",
+  "summarise", "TL;DR", "in a nutshell" all mean about 100 to 150 words.
 - If it does, that request overrides the default format below. Follow it exactly and stay within any
   word limit. Start with a single "# " title, then give only what was asked: no "## " sections,
   no executive summary, no key takeaways.

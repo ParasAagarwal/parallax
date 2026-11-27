@@ -71,20 +71,28 @@ A **live activity panel** shows each step as it runs: the plan with its reasons,
 
 ### Ask Paras: a grounded AI twin
 
-The twin is a single agent that speaks as me, in the first person. My profile and resume are loaded into its instructions once at startup, so every answer takes **one model call**, with no lookups that could slow it down or fail.
+The twin is a single agent that speaks as me, in the first person. My profile and resume are loaded into its instructions once at startup, so answering a question needs **no lookups** that could slow it down or fail.
 
 I started with a tool-calling version, where the agent fetched my resume only when needed. It worked, but it felt mechanical ("reading the resume…") and added extra steps that could fail. For a few pages of personal context, putting it straight into the instructions turned out to be simpler, faster and more natural.
+
+Tools came back later for something they're genuinely good at: **taking an action**. When a visitor wants to hire me, work with me, ask something only I can answer, or share feedback, the twin calls a `draft_message` tool. It writes a short note in the visitor's own words, and the app drops it into the "Say hello" box below the chat. The design rule is *the agent drafts, the visitor confirms, code sends*:
+
+- The tool can only record a draft; it has no way to send anything.
+- Code checks the draft (allowed type, length, a valid email) before it touches the form, and never overwrites what the visitor typed.
+- The message goes out only when the visitor presses Send, through the same limits as any other message.
+- The instructions spell out when a draft is appropriate, and limit it to one offer per conversation. A technical question it can answer gets an answer, not a sales pitch.
 
 Its instructions set out how it should behave:
 
 - **Grounded:** every fact must come from the profile or resume.
 - **Never a dead end:** if something isn't covered, it gives the most helpful honest answer it can ("I haven't used that yet, but it's on my learning plan").
-- **Boundaries:** private topics stay private, salary questions go to me directly, and attempts to change its role are ignored.
+- **Leads with the foundation:** the profile sets the order in which it describes my skills, so it opens with core Salesforce development rather than the flashiest niche.
+- **Boundaries:** private topics stay private, salary questions go to me directly, my phone number is shared only when asked for, and attempts to change its role are ignored.
 - **Memory:** it keeps the last few messages for follow-ups, trimmed so long conversations stay cheap.
 
 ### Messages and activity log
 
-A "Say hello" box lets visitors send feedback, suggestions or a note. Messages, research questions and chats go to a **Google Sheet through a small Google Apps Script**, which also emails me when someone writes. It's free, it stores everything permanently (unlike the free host's disk, which is wiped when the server sleeps), and nothing slows the visitor down: activity is logged in the background, and a logging failure never breaks the app. Messages are rate-limited per visitor, and a site-wide daily cap keeps the email quota safe.
+A "Say hello" box lets visitors send feedback, suggestions or a note. Messages, research questions and chats go to a **Google Sheet through a small Google Apps Script**, which also emails me when someone writes. For research, the log keeps what each agent produced (the plan, every search summary and the final brief), so weak steps can be spotted and the prompts refined. It's free, it stores everything permanently (unlike the free host's disk, which is wiped when the server sleeps), and nothing slows the visitor down: activity is logged in the background, and a logging failure never breaks the app. Messages are rate-limited per visitor, and a site-wide daily cap keeps the email quota safe.
 
 ## Key decisions and trade-offs
 
@@ -94,7 +102,8 @@ A "Say hello" box lets visitors send feedback, suggestions or a note. Messages, 
 | Structured output for the plan | Code can rely on the plan's shape and cap the number of searches | A small model occasionally returns invalid JSON (handled with a retry message) |
 | Sources collected by code | Citations are always real | The brief can't cite specific sentences to specific sources |
 | Date-aware instructions | Stops the model defaulting to its training year | Instructions are rebuilt on every run (negligible cost) |
-| Twin knowledge in the prompt, not via tools | One call, faster, more natural, fewer failure points | Doesn't scale to large knowledge bases (fine for one person) |
+| Twin knowledge in the prompt, not via tools | No lookups: faster, more natural, fewer failure points | Doesn't scale to large knowledge bases (fine for one person) |
+| The twin drafts messages but can't send them | A visitor always confirms what goes out; limits still apply | One extra click for the visitor |
 | Heartbeat updates every second | The page never looks frozen, even when the model is slow | More frequent page updates |
 | Google Sheet + Apps Script for logs | Free, permanent, readable anywhere, emails built in | Around 100 emails a day on a personal Gmail account |
 | One free model everywhere | Zero running cost | Shorter, less nuanced writing than a frontier model |
@@ -133,6 +142,7 @@ research/
 about/
   knowledge.py      loads the profile and resume
   agent.py          the AI twin
+  draft.py          the twin's one tool: draft a message into the Say hello box
 logbook.py          sends messages and activity to the Google Sheet in the background
 limits.py           message limits for the "Say hello" box
 apps_script/        Code.gs: the Google Apps Script that writes the Sheet and sends emails

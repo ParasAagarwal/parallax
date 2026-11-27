@@ -26,7 +26,6 @@ RESEARCH_EXAMPLES = [
 
 CHAT_EXAMPLES = [
     "Introduce yourself in a few lines.",
-    "What are your strongest technical skills?",
     "What kind of roles are you looking for?",
     "How can I get in touch with you?",
 ]
@@ -275,9 +274,12 @@ def showcase_html() -> str:
     <h2>Ask {OWNER_FIRST_NAME}</h2>
     <p class="sc-lead">An AI twin that answers as {OWNER_FIRST_NAME}, in the first person.</p>
     <ul class="sc-points">
-      <li>His profile and resume are part of the agent's instructions, so every answer is grounded
-        and takes a single model call.</li>
+      <li>His profile and resume are part of the agent's instructions, so answers are grounded
+        and need no lookups.</li>
       <li>It remembers the last few messages, so follow-up questions work.</li>
+      <li>One tool, used sparingly: when you want to hire, work with or reach {OWNER_FIRST_NAME}, or share
+        feedback, it drafts a short note into the Say hello box. You review it, add your email and press
+        Send. The agent can draft, but never send.</li>
       <li>Guardrails keep it honest and professional: no invented facts, private topics stay private,
         and attempts to change its role are ignored.</li>
     </ul>

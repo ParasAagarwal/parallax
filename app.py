@@ -13,6 +13,7 @@ from agents import Runner
 from openai.types.responses import ResponseTextDeltaEvent
 
 from about.agent import twin_agent
+from about.draft import ChatContext
 from config import (
     ERROR_ICONS, MAX_CHAT_CHARS, MAX_HISTORY_CHARS, MAX_HISTORY_MESSAGES, MAX_MESSAGE_CHARS,
     MAX_QUERY_CHARS, MESSAGES_PER_VISITOR, OWNER_EMAIL, OWNER_FIRST_NAME, friendly_error, missing_keys,
@@ -24,6 +25,9 @@ from ui import (
     TWIN_NOTE, activity_html, footer_html, hero_html, html_block, quota_html, showcase_html, status_html,
 )
 from limits import limiter, visitor_key
+
+
+LOG_CELL_CHARS = 45_000   # stays under Google Sheets' 50,000-character limit per cell
 
 
 def show_quota(request: gr.Request):
@@ -83,6 +87,11 @@ async def research(question: str):
         "sources": len({link["url"] for step in steps for link in step.links}),
         "words": len(report.split("## Sources")[0].split()) if manager.complete else 0,
         "failed_steps": "; ".join(step.title for step in steps if step.status == "failed"),
+        # Each agent's own output, so the pipeline can be reviewed and refined later.
+        # A Google Sheets cell holds at most 50,000 characters, so each is capped below that.
+        "plan": manager.plan_log[:LOG_CELL_CHARS],
+        "search_summaries": "\n\n".join(manager.search_log)[:LOG_CELL_CHARS],
+        "report": (manager.report or report)[:LOG_CELL_CHARS],
     })
 
 
@@ -125,40 +134,64 @@ def start_chat(message: str, history: list):
     return "", message, history + [{"role": "user", "content": message}]
 
 
+MESSAGE_KINDS = ("Feedback", "Suggestion", "Reach out")
+NO_CHANGE = (gr.update(),) * 5     # leaves the five Say hello outputs as they are
+
+
+def _draft_updates(draft: dict | None):
+    """Turns the twin's draft into updates for the Say hello box: (kind, message, name, email, status).
+    Everything is checked here, in code, so the model can't put anything odd into the form."""
+    if not draft or draft.get("kind") not in MESSAGE_KINDS or not draft.get("message"):
+        return NO_CHANGE
+    name, email = draft.get("name", "")[:100], draft.get("email", "")[:200]
+    return (
+        draft["kind"],
+        draft["message"][:MAX_MESSAGE_CHARS],
+        name or gr.update(),                                      # never wipe what the visitor typed
+        email if EMAIL_PATTERN.match(email) else gr.update(),
+        status_html("Drafted from your chat. Check it, add your email if you'd like a reply, and press Send.", "ok"),
+    )
+
+
 async def chat_reply(message: str, history: list):
     """Step 2: stream the twin's answer word by word into the chat window.
-    `history` already ends with the visitor's message (added in step 1)."""
+    `history` already ends with the visitor's message (added in step 1).
+    Yields (chat window, then the Say hello box's kind, message, name, email and status line)."""
     if not message:      # step 1 rejected the message; nothing to do
         return
     earlier = history[:-1]
 
     if "GOOGLE_API_KEY" in missing_keys():
-        yield history + [{"role": "assistant", "content": "🔑 Chat is unavailable right now: Parallax is missing its API key."}]
+        yield history + [{"role": "assistant", "content": "🔑 Chat is unavailable right now: Parallax is missing its API key."}], *NO_CHANGE
         return
 
     answer, status = "", "ok"
+    context = ChatContext()   # fresh per reply; the draft_message tool writes into it
     try:
-        result = Runner.run_streamed(twin_agent, _history_to_input(earlier, message), max_turns=2)
+        # max_turns=3: one turn may be a draft_message call, the next is the written reply.
+        result = Runner.run_streamed(twin_agent, _history_to_input(earlier, message), context=context, max_turns=3)
         async for event in result.stream_events():
             if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
                 answer += event.data.delta
-                yield history + [{"role": "assistant", "content": answer}]
+                yield history + [{"role": "assistant", "content": answer}], *NO_CHANGE
         if not answer.strip():
             answer = (str(result.final_output or "").strip()
                       or "Sorry, I lost my train of thought there. Could you ask that again?")
-            yield history + [{"role": "assistant", "content": answer}]
     except Exception as error:
         status = f"error: {type(error).__name__}"
         problem = friendly_error(error)
         # Keep whatever was already written, then explain what went wrong underneath.
         answer = (answer.strip() + "\n\n" + problem) if answer.strip() else problem
-        yield history + [{"role": "assistant", "content": answer}]
+
+    # Final update: the full answer, plus the draft (if the twin made one) copied into the Say hello box.
+    yield history + [{"role": "assistant", "content": answer}], *_draft_updates(context.draft)
 
     log_in_background("chat", {
         "question": message,
         "answer": answer[:3000],
         "status": status,
         "turn": sum(1 for m in history if m.get("role") == "user"),   # 1 = first message of the conversation
+        "drafted": context.draft["kind"] if context.draft else "",
     })
 
 
@@ -263,14 +296,8 @@ with gr.Blocks(title="Parallax: research agent and AI twin") as app:
                     chip.click(lambda q=example: q, outputs=chat_box, queue=False)
             html_block(TWIN_NOTE)
             pending_chat = gr.State("")
-
-            for trigger in (chat_send.click, chat_box.submit):
-                trigger(
-                    start_chat, inputs=[chat_box, chatbot], outputs=[chat_box, pending_chat, chatbot], queue=False,
-                ).then(
-                    chat_reply, inputs=[pending_chat, chatbot], outputs=chatbot,
-                    concurrency_limit=4, concurrency_id="chat", show_progress="hidden",
-                )
+            # The chat's events are wired further down, after the Say hello box exists,
+            # because a reply can fill that box with a draft.
 
         with gr.Tab("How it works"):
             html_block(showcase_html())
@@ -294,6 +321,17 @@ with gr.Blocks(title="Parallax: research agent and AI twin") as app:
                           inputs=[contact_name, contact_email, contact_kind, contact_message],
                           outputs=[contact_status, contact_message, contact_quota, send_button],
                           concurrency_limit=4)
+
+    # Chat wiring. Step 1 (instant) shows the message and empties the box; step 2 streams the reply,
+    # and its last update may drop a draft into the Say hello box (never sends it).
+    for trigger in (chat_send.click, chat_box.submit):
+        trigger(
+            start_chat, inputs=[chat_box, chatbot], outputs=[chat_box, pending_chat, chatbot], queue=False,
+        ).then(
+            chat_reply, inputs=[pending_chat, chatbot],
+            outputs=[chatbot, contact_kind, contact_message, contact_name, contact_email, contact_status],
+            concurrency_limit=4, concurrency_id="chat", show_progress="hidden",
+        )
 
     html_block(footer_html())
 

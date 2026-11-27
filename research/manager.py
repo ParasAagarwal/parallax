@@ -72,6 +72,9 @@ class ResearchManager:
         self.steps: list[Step] = []
         self.report = ""
         self.complete = False   # True only when the whole pipeline succeeded (the page then collapses the trace)
+        # What each agent produced, kept for the activity log (so answers can be reviewed and improved later).
+        self.plan_log = ""                      # planner: each search and why
+        self.search_log: list[str] = []         # searchers: one summary (or failure note) per search
 
     def add_step(self, title: str) -> Step:
         step = Step(title)
@@ -110,6 +113,7 @@ class ResearchManager:
             yield self.steps, friendly_error(error)
             return
         plan_step.finish("done", [f"**{item.query}** · {item.reason}" for item in searches])
+        self.plan_log = "\n".join(f"{n}. {item.query} | {item.reason}" for n, item in enumerate(searches, start=1))
         yield self.steps, ""
 
         # ---------- 2. Search (in parallel) ----------
@@ -139,12 +143,16 @@ class ResearchManager:
                 for task in finished:
                     index, summary, context, error = task.result()
                     step = search_steps[index]
+                    query = searches[index].query
                     if error:
                         last_error = error
                         step.finish("failed", [short_error(error)])
+                        self.search_log.append(f"### {query}\n(failed: {short_error(error)})")
                     elif context.failed or not summary.strip() or "NO_RESULTS" in summary:
                         step.finish("failed", ["No useful results found"])
+                        self.search_log.append(f"### {query}\n(no useful results)\n{summary.strip()}".strip())
                     else:
+                        self.search_log.append(f"### {query}\n{summary.strip()}")
                         summaries.append((searches[index].query, summary))
                         all_sources.extend(context.sources)
                         step.finish("done", [f"Read {len(context.sources)} sources"], context.sources)
